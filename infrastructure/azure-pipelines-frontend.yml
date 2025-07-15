@@ -1,0 +1,100 @@
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - frontend/*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  node.version: '18.x'
+  staticWebAppName: 'yippee-frontend'
+
+stages:
+- stage: Build
+  displayName: 'Build and Test'
+  jobs:
+  - job: Build
+    displayName: 'Build Frontend'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '$(node.version)'
+      displayName: 'Install Node.js'
+
+    - script: |
+        cd frontend
+        npm ci
+      displayName: 'Install dependencies'
+
+    - script: |
+        cd frontend
+        npm run build
+      displayName: 'Build application'
+
+    - script: |
+        cd frontend
+        npm test -- --watchAll=false --coverage --coverageReporters=text --coverageReporters=lcov
+      displayName: 'Run tests'
+
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'frontend/test-results.xml'
+        mergeTestResults: true
+      condition: succeededOrFailed()
+
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: 'frontend/coverage/cobertura-coverage.xml'
+      condition: succeededOrFailed()
+
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: 'frontend/build'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/frontend.zip'
+        replaceExistingArchive: true
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+
+- stage: Deploy
+  displayName: 'Deploy to Azure'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: Deploy
+    displayName: 'Deploy to Static Web App'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureStaticWebApp@0
+            inputs:
+              app_location: 'frontend'
+              api_location: ''
+              output_location: 'build'
+              skip_app_build: true
+              deployment_environment: 'production'
+              azure_static_web_apps_api_token: '$(AZURE_STATIC_WEB_APPS_API_TOKEN)'
+
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: 'Your-Azure-Subscription'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                # Update Static Web App configuration
+                az staticwebapp appsettings set \
+                  --name $(staticWebAppName) \
+                  --setting-names REACT_APP_API_URL="$(BACKEND_API_URL)" 

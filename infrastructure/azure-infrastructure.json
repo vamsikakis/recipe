@@ -1,0 +1,312 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "type": "string",
+      "defaultValue": "yippee-recipe-generator-rg",
+      "metadata": {
+        "description": "Name of the resource group"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "East US",
+      "metadata": {
+        "description": "Location for all resources"
+      }
+    },
+    "appServicePlanName": {
+      "type": "string",
+      "defaultValue": "yippee-backend-plan",
+      "metadata": {
+        "description": "Name of the App Service Plan"
+      }
+    },
+    "backendAppName": {
+      "type": "string",
+      "defaultValue": "yippee-backend-api",
+      "metadata": {
+        "description": "Name of the backend App Service"
+      }
+    },
+    "frontendAppName": {
+      "type": "string",
+      "defaultValue": "yippee-frontend",
+      "metadata": {
+        "description": "Name of the frontend Static Web App"
+      }
+    },
+    "cosmosDbAccountName": {
+      "type": "string",
+      "defaultValue": "yippee-cosmos-db",
+      "metadata": {
+        "description": "Name of the Cosmos DB account"
+      }
+    },
+    "aiServicesName": {
+      "type": "string",
+      "defaultValue": "yippee-ai-services",
+      "metadata": {
+        "description": "Name of the AI Services account"
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "defaultValue": "yippee-key-vault",
+      "metadata": {
+        "description": "Name of the Key Vault"
+      }
+    },
+    "applicationInsightsName": {
+      "type": "string",
+      "defaultValue": "yippee-app-insights",
+      "metadata": {
+        "description": "Name of the Application Insights resource"
+      }
+    },
+    "openaiDeploymentName": {
+      "type": "string",
+      "defaultValue": "gpt-35-turbo",
+      "metadata": {
+        "description": "Name of the OpenAI GPT deployment"
+      }
+    },
+    "dalleDeploymentName": {
+      "type": "string",
+      "defaultValue": "dall-e-3",
+      "metadata": {
+        "description": "Name of the DALL-E deployment"
+      }
+    }
+  },
+  "variables": {
+    "cosmosDbDatabaseName": "yippee-recipes",
+    "cosmosDbRecipesContainer": "recipes",
+    "cosmosDbGeneratedRecipesContainer": "generated_recipes",
+    "cosmosDbUserProfilesContainer": "user_profiles"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2021-04-01",
+      "name": "[parameters('resourceGroupName')]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2021-02-01",
+      "name": "[parameters('appServicePlanName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "B1",
+        "tier": "Basic"
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2021-02-01",
+      "name": "[parameters('backendAppName')]",
+      "location": "[parameters('location')]",
+      "kind": "app,linux",
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+        "siteConfig": {
+          "linuxFxVersion": "PYTHON|3.9",
+          "appSettings": [
+            {
+              "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
+              "value": "false"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "true"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Web/staticSites",
+      "apiVersion": "2021-02-01",
+      "name": "[parameters('frontendAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "branch": "main",
+        "repositoryUrl": "https://github.com/your-org/yippee-recipe-generator",
+        "repositoryToken": "[parameters('githubToken')]",
+        "buildProperties": {
+          "appLocation": "frontend",
+          "apiLocation": "",
+          "outputLocation": "build"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2021-10-15",
+      "name": "[parameters('cosmosDbAccountName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableServerless"
+          }
+        ],
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session",
+          "maxStalenessPrefix": 100,
+          "maxIntervalInSeconds": 5
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2021-10-15",
+      "name": "[concat(parameters('cosmosDbAccountName'), '/', variables('cosmosDbDatabaseName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName'))]"
+      ],
+      "properties": {
+        "resource": {
+          "id": "[variables('cosmosDbDatabaseName')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2021-10-15",
+      "name": "[concat(parameters('cosmosDbAccountName'), '/', variables('cosmosDbDatabaseName'), '/', variables('cosmosDbRecipesContainer'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosDbAccountName'), variables('cosmosDbDatabaseName'))]"
+      ],
+      "properties": {
+        "resource": {
+          "id": "[variables('cosmosDbRecipesContainer')]",
+          "partitionKey": {
+            "paths": [
+              "/id"
+            ],
+            "kind": "Hash"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2021-10-15",
+      "name": "[concat(parameters('cosmosDbAccountName'), '/', variables('cosmosDbDatabaseName'), '/', variables('cosmosDbGeneratedRecipesContainer'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosDbAccountName'), variables('cosmosDbDatabaseName'))]"
+      ],
+      "properties": {
+        "resource": {
+          "id": "[variables('cosmosDbGeneratedRecipesContainer')]",
+          "partitionKey": {
+            "paths": [
+              "/id"
+            ],
+            "kind": "Hash"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2021-10-15",
+      "name": "[concat(parameters('cosmosDbAccountName'), '/', variables('cosmosDbDatabaseName'), '/', variables('cosmosDbUserProfilesContainer'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosDbAccountName'), variables('cosmosDbDatabaseName'))]"
+      ],
+      "properties": {
+        "resource": {
+          "id": "[variables('cosmosDbUserProfilesContainer')]",
+          "partitionKey": {
+            "paths": [
+              "/user_id"
+            ],
+            "kind": "Hash"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2021-10-01",
+      "name": "[parameters('aiServicesName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "S0"
+      },
+      "kind": "CognitiveServices",
+      "properties": {
+        "customSubDomainName": "[parameters('aiServicesName')]"
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2021-06-01-preview",
+      "name": "[parameters('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "tenantId": "[subscription().tenantId]",
+        "accessPolicies": [],
+        "enabledForDeployment": true,
+        "enabledForDiskEncryption": true,
+        "enabledForTemplateDeployment": true
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[parameters('applicationInsightsName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "Request_Source": "rest"
+      }
+    }
+  ],
+  "outputs": {
+    "backendAppUrl": {
+      "type": "string",
+      "value": "[concat('https://', parameters('backendAppName'), '.azurewebsites.net')]"
+    },
+    "frontendAppUrl": {
+      "type": "string",
+      "value": "[concat('https://', parameters('frontendAppName'), '.azurestaticapps.net')]"
+    },
+    "cosmosDbConnectionString": {
+      "type": "string",
+      "value": "[listKeys(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbAccountName')), '2021-10-15').primaryMasterKey]"
+    },
+    "aiServicesEndpoint": {
+      "type": "string",
+      "value": "[concat('https://', parameters('aiServicesName'), '.cognitiveservices.azure.com/')]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "value": "[concat('https://', parameters('keyVaultName'), '.vault.azure.net/')]"
+    },
+    "applicationInsightsConnectionString": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', parameters('applicationInsightsName')), '2020-02-02').ConnectionString]"
+    }
+  }
+} 
