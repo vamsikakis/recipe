@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, Users, Star, Heart, Share2, Bookmark } from 'lucide-react';
+import { Clock, Users, Heart, Share2} from 'lucide-react';
 
 const RecipeDisplay = ({ recipeData }) => {
   const [isSaved, setIsSaved] = useState(false);
